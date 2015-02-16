@@ -609,6 +609,7 @@ class Rbac(object):
                 self.roles, self.rules = roles_rules
         else:
             self.unset = True
+        return True
 
     def belongs_to(self, role_s):
         """Check to see if a user belongs to a role/s group
