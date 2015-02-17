@@ -172,15 +172,15 @@ class RbacRule(ndb.Model):
     """
 
     # holds the roles that owns this rule. Also holds CUSTOM_RULE_NAME for custom rules.
-    roles = ndb.StringProperty(repeated=True, indexed=False)
+    roles = ndb.StringProperty('ro', repeated=True, indexed=False)
     # resource this rule applies for. Usually a url name (ej. 'posts') or a url (ej. '/posts/')
-    resource = ndb.StringProperty(required=True, indexed=False)
+    resource = ndb.StringProperty('r', required=True, indexed=False)
     # the topic of the rule. May apply to a part of a page (ej. 'edit_post')
-    topic = ndb.StringProperty(default='*', indexed=False)
+    topic = ndb.StringProperty('t', default='*', indexed=False)
     # action to perform. Maybe whatever you want but usually a CRUD operation.
-    action = ndb.StringProperty(default='*', indexed=False)
+    action = ndb.StringProperty('a', default='*', indexed=False)
     # permission allowed or not. Defaults to False
-    flag = ndb.BooleanProperty(default=False, indexed=False)
+    flag = ndb.BooleanProperty('f', default=False, indexed=False)
 
     @classmethod
     def new(cls, roles, resource, topic='*', action='*', flag=False):
@@ -220,9 +220,9 @@ class RbacRole(ndb.Model):
     """Representation of a Role"""
 
     # name of the role (ej. 'admin')
-    name = ndb.StringProperty(required=True, indexed=True)  # indexed so it can be queried.
+    name = ndb.StringProperty('n', required=True, indexed=True)  # indexed so it can be queried.
     # holds the rules: see https://cloud.google.com/appengine/docs/python/ndb/properties#structured
-    rules = ndb.LocalStructuredProperty(RbacRule, repeated=True)  # Not indexed by default.
+    rules = ndb.LocalStructuredProperty('ru', RbacRule, repeated=True)  # Not indexed by default.
 
     @staticmethod
     def build_id(role_name):
@@ -319,13 +319,13 @@ class RbacUserRules(ndb.Model):
     """
 
     # user id rules applies for.
-    user = ndb.StringProperty(required=True, indexed=False)
+    user = ndb.StringProperty('u', required=True, indexed=False)
     # list of roles
-    roles = ndb.StringProperty(repeated=True, indexed=False)
+    roles = ndb.StringProperty('ro', repeated=True, indexed=False)
     # list of rules
-    rules = ndb.LocalStructuredProperty(RbacRule, repeated=True)  # Not indexed by default.
+    rules = ndb.LocalStructuredProperty('ru', RbacRule, repeated=True)  # Not indexed by default.
     # Modification date
-    updated = ndb.DateTimeProperty(auto_now=True, indexed=False)
+    updated = ndb.DateTimeProperty('ud', auto_now=True, indexed=False)
 
     @staticmethod
     def build_id(user):
@@ -376,7 +376,7 @@ class RbacUserRules(ndb.Model):
         :param resource:
             the resource to get the rules from
         :returns:
-            (roles and rules) tuple or None
+            (user_rules, roles and rules) triple or None
         """
         user_rules = yield cls.get_rules_async(user)
         if user_rules:
@@ -384,7 +384,7 @@ class RbacUserRules(ndb.Model):
                 rules = [rule for rule in user_rules.rules if rule.resource == resource]
             else:
                 rules = user_rules.rules
-            raise ndb.Return(user_rules.roles, rules)
+            raise ndb.Return(user_rules, user_rules.roles, rules)
         raise ndb.Return(None)
 
     @classmethod
@@ -569,7 +569,7 @@ class Rbac(object):
     # Configuration key.
     config_key = __name__
 
-    def __init__(self, user, request, resource=None):
+    def __init__(self, user, request=None, resource=None):
         """Loads rbac config, rules and roles for a given user.
         If resource passed as None, will try to get ir from the matched Route name
         :param user:
@@ -586,27 +586,29 @@ class Rbac(object):
 
         self.login_route_is_uri_name = '/' not in self.config['login_route']
 
-        if not resource and self.config['automatic_resource']:
+        if not resource and self.config['automatic_resource'] and request:
             # If the user don't provide the resource, automatically retrieves the uri name
             # from the Route matched from the request.
             # Uri names definition on Routes are really needed for this to work.
             # if you want to avoid this automatic resource match just pass
             # a resource you want to match (non empty string) or set 'automatic_resource' to False
             resource = request.route.name or None
-        self.resource = resource
 
+        # init instance variables
+        self.resource = resource
         self.roles = []
         self.rules = []
         self.user = None
+        self.rbac_rules = None
         # self.unset will be true if user is not provided correcty.
         # this will avoid any computation and allways return None (None means no access allowed) when asked for access.
         if user:
             self.unset = False
             self.user = str(user)
             # load roles and rules
-            roles_rules = RbacUserRules.get_rules_for_resource_async(str(user), resource, sync=True)
+            roles_rules = RbacUserRules.get_rules_for_resource_async(self.user, resource, sync=True)
             if roles_rules:
-                self.roles, self.rules = roles_rules
+                self.rbac_rules, self.roles, self.rules = roles_rules
         else:
             self.unset = True
 
@@ -684,6 +686,16 @@ class RbacMixin(object):
         except:
             resource = None
         return get_rbac(user, resource, request=self.request)
+
+
+class RbacUserMixin(object):
+    """A mixin that adds rbac property to a user class (webapp2_extras.appengine.auth.models.User)
+    Adds functionalitty to a user class so it can retrieve it's RbacUserRules and do more.
+    """
+
+    @webapp2.cached_property
+    def rbac(self):
+        return Rbac(self.get_id())
 
 
 def allow(roles, methods=None):
