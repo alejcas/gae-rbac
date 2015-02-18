@@ -46,12 +46,12 @@
     RbacRules basically consist of:
     -resource: typically a web url or a Route uri name (or whatever you want)
     -topic: typically a part of the page (or whatever you want). Defaults to '*' which means everything.
-    -action: typically a CRUD operation (or whatever you want). Defaults to '*' which means everything.
+    -name: typically a CRUD operation (or whatever you want). Defaults to '*' which means everything.
     -flag: True to allow, False to denny access (defaults to False)
 
     IMPORTANT: '*' in topic and action means everything. It's incompatible to have rules for the same resource
-    with topic '*' an another rule with a specific topic. This abstraction is not defined in this
-    code so you must eliminate specific topics or actions when setting a '*' for the same resource. This is up to you.
+    with topic '*' an another rule with a specific topic. same with name. This abstraction is not defined in this
+    code so you must eliminate specific topics or names when setting a '*' for the same resource. This is up to you.
     Althougt remember rules are checked in order!
 
     Usage example:
@@ -91,16 +91,16 @@
         # Then you can use this user rules in 2 ways:
         # (having your handlers inherit from RbacMixin assumed)
         # 1) Decorating handlers with @rbac.allow('list_of_roles', 'list of methods') or
-            @rbac.deny('list_of_roles', 'list of methods') or @rbac.check_access(topic, action):
+            @rbac.deny('list_of_roles', 'list of methods') or @rbac.check_access(topic, name):
 
         class ProfileHandler(BaseHandler):
             @rbac.deny(['contributor', 'supervisor'])  # if user is one of this roles will get a abort(403) (Forbidden)
             def get(self):
                 self.response.write('access granted to profile')
 
-            # in the following example, notice that if there is a rule such as (topic ='update_profile', action='delete', flag=False)
-            # (and suppose this is the only rule) rbac.check_access will return ALLOW access.
-            @rbac.check_access('update_profile') # if rule (topic ='update_profile', action='*', flag=False) DENY, else ALLOW
+            # in the following example, notice that if there is a rule such as (topic ='update_profile', name='delete', flag=False)
+            # (and suppose this is the only rule for this resource) rbac.check_access will return ALLOW access.
+            @rbac.check_access('update_profile') # if rule (topic ='update_profile', name='*', flag=False) DENY, else ALLOW
             def post(self):
                 self.response.write('access granted to update profile')
 
@@ -178,27 +178,27 @@ class RbacRule(ndb.Model):
     # the topic of the rule. May apply to a part of a page (ej. 'edit_post')
     topic = ndb.StringProperty('t', default='*', indexed=False)
     # action to perform. Maybe whatever you want but usually a CRUD operation.
-    action = ndb.StringProperty('a', default='*', indexed=False)
+    name = ndb.StringProperty('a', default='*', indexed=False)
     # permission allowed or not. Defaults to False
     flag = ndb.BooleanProperty('f', default=False, indexed=False)
 
     @classmethod
-    def new(cls, roles, resource, topic='*', action='*', flag=False):
+    def new(cls, roles, resource, topic='*', name='*', flag=False):
         """Factory method to create new Rules."""
         if roles is None:
             roles = []
-        rule = cls(roles=roles, resource=resource, topic=topic, action=action, flag=flag)
+        rule = cls(roles=roles, resource=resource, topic=topic, name=name, flag=flag)
         return rule
 
     @staticmethod
-    def get_signature(resource, topic, action, flag):
+    def get_signature(resource, topic, name, flag):
         """Represents the signature of a rule. For deduplication purposes."""
-        return "%s:%s:%s:%s" % (resource, topic, action, flag)
+        return "%s:%s:%s:%s" % (resource, topic, name, flag)
 
     @property
     def signature(self):
         """Returns the signature of this rule."""
-        return self.get_signature(self.resource, self.topic, self.action, self.flag)
+        return self.get_signature(self.resource, self.topic, self.name, self.flag)
 
     def add_role(self, role_name):
         """Adds the role name to the role avoiding duplicates.
@@ -292,16 +292,16 @@ class RbacRole(ndb.Model):
         role = cls(name=name, rules=rules, id=cls.build_id(name))
         return role
 
-    def new_rule(self, resource, topic='*', action='*', flag=False):
+    def new_rule(self, resource, topic='*', name='*', flag=False):
         """Method to create new rules to the current role. RbacRules are never put into the datastore.
         Will add this new rule to the instance rules list.
 
         :returns:
             The new RbacRule object if created. None if it's allready in self.rules
         """
-        signature = RbacRule.get_signature(resource, topic, action, flag)
+        signature = RbacRule.get_signature(resource, topic, name, flag)
         if signature not in self.rules_signatures:
-            rule = RbacRule.new([self.name], resource, topic, action, flag)
+            rule = RbacRule.new([self.name], resource, topic, name, flag)
             self.rules.append(rule)
             return rule
         return None
@@ -370,7 +370,7 @@ class RbacUserRules(ndb.Model):
     @tasklet
     def get_rules_for_resource_async(cls, user, resource=None):
         """Gets the RbacUserRules from the datastore for the current user and a resource
-        Geting for a resource is so common that we define this helper method.
+        Getting for a resource is so common that we define this helper method.
         :param user:
             the user id
         :param resource:
@@ -380,7 +380,7 @@ class RbacUserRules(ndb.Model):
         """
         user_rules = yield cls.get_rules_async(user)
         if user_rules:
-            if resource:
+            if resource and resource != '*':
                 rules = [rule for rule in user_rules.rules if rule.resource == resource]
             else:
                 rules = user_rules.rules
@@ -501,7 +501,7 @@ class RbacUserRules(ndb.Model):
         self.rules = new_rules
         return True
 
-    def add_custom_rule(self, resource, topic='*', action='*', flag=False):
+    def add_custom_rule(self, resource, topic='*', name='*', flag=False):
         """Adds a custom rule to the current RbacUserRules
         :returns:
             the RbacRule object.
@@ -510,14 +510,14 @@ class RbacUserRules(ndb.Model):
             # Because this is a custom rule, we put the CUSTOM_RULE_NAME inside the roles list.
             raise Exception('a resource name must be provided')
         # custom rule will be ignored if there is another rule with the same signature (even if is a role rule).
-        rule = RbacRule.new([CUSTOM_RULE_NAME], resource, topic, action, flag)
+        rule = RbacRule.new([CUSTOM_RULE_NAME], resource, topic, name, flag)
         if rule.signature not in self.rules_signatures:
             self.rules.append(rule)
         return rule
 
-    def remove_custom_rule(self, resource=None, topic='*', action='*', flag=False, signature=None):
+    def remove_custom_rule(self, resource=None, topic='*', name='*', flag=False, signature=None):
         """Removes a custom rule from the user rules.
-        :param resource, topic, action and Flag:
+        :param resource, topic, name and Flag:
             the 4 rule attributes
         :param signature:
             instead of the 4 rule attributes you can provide a rule signature
@@ -527,7 +527,7 @@ class RbacUserRules(ndb.Model):
         if signature is None:
             if resource is None:
                 raise Exception('you must provide at least a resource or a signature')
-            signature = RbacRule.get_signature(resource, topic, action, flag)
+            signature = RbacRule.get_signature(resource, topic, name, flag)
         new_rules = []
         for rule in self.rules:
             if CUSTOM_RULE_NAME in rule.roles and rule.signature == signature:
@@ -542,20 +542,20 @@ class RbacUserRules(ndb.Model):
         self.rules = new_rules
         return True
 
-    def has_rule(self, resource, topic='*', action='*', flag=False):
+    def has_rule(self, resource, topic='*', name='*', flag=False):
         """Checks if the user have this rule.
         :param resource:
             the resource
         :param topic:
             the topic
-        :param action:
-            the action
+        :param name:
+            the name
         :param flag:
             the flag
         :returns:
             True if the user have this rule, False otherwise
         """
-        new_rule = RbacRule.new([], resource, topic, action, flag)
+        new_rule = RbacRule.new([], resource, topic, name, flag)
         for rule in self.rules:
             if new_rule == rule:
                 return True
@@ -637,28 +637,45 @@ class Rbac(object):
             return None
         return all(role in self.roles for role in roles)
 
-    def has_access(self, topic='*', action='*', resource=None):
-        """Checks if the user has access to a topic/action combination.
-        If resource is provided then will look only for this resource but
-        normally self.rules is already limited to the resource provided by
-        the user or by the automatic resource identification if is enabled.
+    def rules_for_resource(self, resource):
+        """Filters all user rules and returns a list of rules for the given resource
+        :param resource:
+            a resource
+        :returns:
+            A list of rules for the given resource
+        """
+        rules = []
+        if self.rbac_rules:
+            if resource and resource != '*':
+                rules =[rule for rule in self.rbac_rules.rules if rule.resource == resource]
+            else:
+                rules = self.rbac_rules.rules
+        return rules
+
+    def has_access(self, topic='*', name='*', resource=None):
+        """Checks if the user has access to a topic/name combination.
+        If resource is provided then will look only for this resource from
+        all the user rules but normally self.rules is already limited to
+        the resource provided by the user or by the automatic resource
+        identification if is enabled.
         :param topic:
             the topic
-        :param action:
-            the action
+        :param name:
+            the name
         :returns:
             True if the user has access to this rule, False if no. None if user was not set.
         """
         if self.unset:
             return None
-        if resource:
-            rules = [rule for rule in self.rules if rule.resource == resource]
+        if resource and resource != self.resource:
+            # if a resource is provided filter from all user rules
+            rules = self.rules_for_resource(resource)
         else:
             rules = self.rules
         for rule in rules:
             if (rule.topic == topic or rule.topic == '*') and \
-                    (rule.action == action or rule.action == '*'):
-                # Topic and action matched, so return the flag
+                    (rule.name == name or rule.name == '*'):
+                # Topic and name matched, so return the flag
                 return rule.flag
         # No match. Access is granted depending on rbac_policy_allow.
         return self.config['rbac_policy_allow']
@@ -690,7 +707,7 @@ class RbacMixin(object):
 
 class RbacUserMixin(object):
     """A mixin that adds rbac property to a user class (webapp2_extras.appengine.auth.models.User)
-    Adds functionalitty to a user class so it can retrieve it's RbacUserRules and do more.
+    Adds functionality to a user class so it can retrieve it's RbacUserRules and do more.
     """
 
     @webapp2.cached_property
@@ -768,7 +785,7 @@ def deny(roles, methods=None):
     return check_arg
 
 
-def check_access(topic='*', action='*', resource=None, methods=None):
+def check_access(topic='*', name='*', resource=None, methods=None):
     """This is a decorator function.
     RbacMixin must be implemented in the class of the handler.
     You can check access rules to allow access to the handler method.
@@ -779,8 +796,8 @@ def check_access(topic='*', action='*', resource=None, methods=None):
             return self.response.write('Access Granted!')
     :param topic:
         a topic to check
-    :param action:
-        a action to check
+    :param name:
+        a name to check
     :param resource:
         a resource to check.
     :param methods:
@@ -796,7 +813,7 @@ def check_access(topic='*', action='*', resource=None, methods=None):
                     return self.redirect_to(self.rbac.config['login_route'], _abort=True)
                 else:
                     return self.redirect(self.rbac.config['login_route'], abort=True)
-            if self.rbac.has_access(topic, action, resource) and check_method(methods, self):
+            if self.rbac.has_access(topic, name, resource) and check_method(methods, self):
                 return handler(self, *args, **kwargs)
             # access denied
             return self.abort(403)
