@@ -650,7 +650,7 @@ class Rbac(object):
         rules = []
         if self.rbac_rules:
             if resource and resource != '*':
-                rules =[rule for rule in self.rbac_rules.rules if rule.resource == resource]
+                rules = [rule for rule in self.rbac_rules.rules if rule.resource == resource]
             else:
                 rules = self.rbac_rules.rules
         return rules
@@ -715,6 +715,9 @@ class RbacUserMixin(object):
 
     @webapp2.cached_property
     def rbac(self):
+        """Property that returns a Rbac object given the user_id from the User Model.
+        Method get_id() is implemented by default in: webapp2_extras.appengine.auth.models.User
+        """
         return Rbac(self.get_id())
 
 
