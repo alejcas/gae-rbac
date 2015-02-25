@@ -5,4 +5,4 @@
 __author__ = 'Alejandro Casanovas'
 
 
-from rbac import RbacRole, RbacUserRules, RbacMixin, allow, deny, check_access
+from rbac import RbacRole, RbacUserRules, RbacMixin, RbacUserMixin, allow, deny, check_access
