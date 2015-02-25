@@ -225,7 +225,7 @@ class RbacRole(ndb.Model):
     # name of the role (ej. 'admin')
     name = ndb.StringProperty('n', required=True, indexed=True)  # indexed so it can be queried.
     # holds the rules: see https://cloud.google.com/appengine/docs/python/ndb/properties#structured
-    rules = ndb.LocalStructuredProperty('ru', RbacRule, repeated=True)  # Not indexed by default.
+    rules = ndb.LocalStructuredProperty(RbacRule, 'ru', repeated=True)  # Not indexed by default.
 
     @staticmethod
     def build_id(role_name):
@@ -326,7 +326,7 @@ class RbacUserRules(ndb.Model):
     # list of roles
     roles = ndb.StringProperty('ro', repeated=True, indexed=False)
     # list of rules
-    rules = ndb.LocalStructuredProperty('ru', RbacRule, repeated=True)  # Not indexed by default.
+    rules = ndb.LocalStructuredProperty(RbacRule, 'ru', repeated=True)  # Not indexed by default.
     # Modification date
     updated = ndb.DateTimeProperty('ud', auto_now=True, indexed=False)
 
