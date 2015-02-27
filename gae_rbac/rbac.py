@@ -64,9 +64,9 @@
         # Optionally import decorators: allow, deny and check_access in your handlers code.
         # No further imports are needed.
 
-        from rbac import RbacRole, RbacUserRules  # imports when defining Roles and Rules for users
-        from rbac import RbacMixin # import to add rbac property to your handlers.
-        from rbac import allow, deny, check_access # imports when checking access to your handlers
+        from gae_rbac import RbacRole, RbacUserRules  # imports when defining Roles and Rules for users
+        from gae_rbac import RbacMixin # import to add rbac property to your handlers.
+        from gae_rbac import allow, deny, check_access # imports when checking access to your handlers
 
         # Define some RbacRoles and RbacRules.
         # Obviously you don't really need to use Roles and you can just use custom rules, but
@@ -129,17 +129,13 @@ from google.appengine.ext import ndb
 CUSTOM_RULE_NAME = '_custom'
 
 
-# This default config can be overwrited in webapp2 config dictionary with the Config_key = 'rbac.rbac':
-# -login_route: Used in access decoratators to redirect to the login page if a user is not logged in.
-# It can be: the login url string (must contain at least one '/') or the Route uri name (string).
-# 'login' is the default. You really can redirect to any place... not just the login page.
+# This default config can be overwrited in webapp2 config dictionary with the Config_key = 'gae_rbac.rbac':
 # -rbac_policy_allow: Can be True or False
 # True to allow access by default. If a rule is not found, access is allowed. You must define deny rules.
 # False to deny access by default. If a rule is not found, access is denied. You must define allow rules.
 # -automatic_resource: True to get the resource from the Route uri name. By default True.
 
-default_config = {'login_route': 'login',
-                  'rbac_policy_allow': True,
+default_config = {'rbac_policy_allow': True,
                   'automatic_resource': True}
 
 
@@ -587,8 +583,6 @@ class Rbac(object):
         # load default configs and overwrite with user default configs if set.
         self.config = request.app.config.load_config(self.config_key, default_values=default_config)
 
-        self.login_route_is_uri_name = '/' not in self.config['login_route']
-
         if not resource and self.config['automatic_resource'] and request:
             # If the user don't provide the resource, automatically retrieves the uri name
             # from the Route matched from the request.
@@ -744,10 +738,7 @@ def allow(roles, methods=None):
     def check_arg(handler):
         def check_allow(self, *args, **kwargs):
             if self.user_id is None:
-                if self.rbac.login_route_is_uri_name:
-                    return self.redirect_to(self.rbac.config['login_route'], _abort=True)
-                else:
-                    return self.redirect(self.rbac.config['login_route'], abort=True)
+                return self.redirect_to('login', _abort=True)
             if self.rbac.belongs_to(roles) and check_method(methods, self):
                 # access allowed
                 return handler(self, *args, **kwargs)
@@ -779,10 +770,7 @@ def deny(roles, methods=None):
     def check_arg(handler):
         def check_deny(self, *args, **kwargs):
             if self.user_id is None:
-                if self.rbac.login_route_is_uri_name:
-                    return self.redirect_to(self.rbac.config['login_route'], _abort=True)
-                else:
-                    return self.redirect(self.rbac.config['login_route'], abort=True)
+                return self.redirect_to('login', _abort=True)
             if self.rbac.belongs_to(roles) and check_method(methods, self):
                 # access denied
                 return self.abort(403)
@@ -815,10 +803,7 @@ def check_access(topic='*', name='*', resource=None, methods=None):
     def check_arg(handler):
         def check_int(self, *args, **kwargs):
             if self.user_id is None:
-                if self.rbac.login_route_is_uri_name:
-                    return self.redirect_to(self.rbac.config['login_route'], _abort=True)
-                else:
-                    return self.redirect(self.rbac.config['login_route'], abort=True)
+                return self.redirect_to('login', _abort=True)
             if self.rbac.has_access(topic, name, resource) and check_method(methods, self):
                 return handler(self, *args, **kwargs)
             # access denied
