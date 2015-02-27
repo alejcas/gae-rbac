@@ -118,7 +118,7 @@
 
     Based on concept from `tipfy ACL` (https://github.com/moraes/tipfy/blob/master/tipfy/appengine/acl.py)
     Also some Rbac concepts inspired by Flask Rbac (https://github.com/shonenada/flask-rbac/tree/master/flask_rbac)
-    :copyright: 2015 by Alejandro Casanovas.
+    :copyright: 2015 by janscas.
     :license: see LICENSE.txt for more details.
 """
 
