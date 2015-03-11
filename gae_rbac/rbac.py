@@ -443,7 +443,7 @@ class RbacUserRules(ndb.Model):
         """sort the rules based on the __lt__ function in RbacRules"""
         self.rules = sorted(self.rules, reverse=True)
 
-    def add_role(self, role, sort_rules=False):
+    def add_role(self, role, sort_rules=False, use_rbac_role=True):
         """Adds the role and role rules to the user roles and rules lists.
         If the role is already added we don't do anything.
         This method don't check if a Role rules definition has changed.
@@ -452,6 +452,8 @@ class RbacUserRules(ndb.Model):
             RbacRole Model or role name string to append to the user rules.
         :param sort_rules:
             will sort all the rules at the end. Defaults to False.
+        :param use_rbac_role:
+            True if you plan tu use RbacRoles. Will try to get the RbacRole if you pass role as a string
         :returns:
             (roles, rules) tuple if succeed, else None
         """
@@ -460,12 +462,13 @@ class RbacUserRules(ndb.Model):
                 # If the role is already applied to this user don't do anything...
                 if role in self.roles:
                     return None
-                role_obj = RbacRole.get_role_async(role, sync=True)
-                if not role_obj:
-                    # This role was not found. However you maybe aren't using RbacRoles so.. add the role name anyway.
-                    # Append the new role name to the roles list
+                if not use_rbac_role:
                     self.roles.append(role)
                     return self.roles, self.rules
+                role_obj = RbacRole.get_role_async(role, sync=True)
+                if not role_obj:
+                    # This role was not found. Return None
+                    return None
                 role = role_obj
             else:
                 raise Exception('role must be an instance of RbacRole or a role string')
@@ -496,17 +499,19 @@ class RbacUserRules(ndb.Model):
             self.sort_rules()
         return self.roles, self.rules
 
-    def add_roles(self, roles, sort_rules=False):
+    def add_roles(self, roles, sort_rules=False, use_rbac_role=True):
         """Helper method to add list of roles
         :param roles:
             a list of RbacRoles or list of role strings
         :param sort_rules:
             will sort all the rules at the end. Defaults to False.
+        :param use_rbac_role:
+            True if you plan tu use RbacRoles. Will try to get the RbacRole if you pass role as a string
         :returns:
             tuple (self.roles, self.rules)
         """
         for role in roles:
-            self.add_role(role)
+            self.add_role(role, use_rbac_role=use_rbac_role)
         if sort_rules:
             self.sort_rules()
         return self.roles, self.rules
