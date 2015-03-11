@@ -20,6 +20,7 @@
         you need to define rules that grant access (Flag=True)
     IMPORTANT: Rules are checked in order. If you define two rules for the same resource, topic or action
         only the first one will be checked and return the permission without checking the following rules.
+        However, you can use method 'sort_rules' to sort the set the rules in order.
     IMPORTANT: All user rules are stored in the same entity on a per user basis. It is implemented as a repeated
         property. So, only a limited amount of rules can be added. If you overcome the 1MB entity size limit you
         will get an error. However, it can store thousands of rules before achieving the 1MB limit.
@@ -47,7 +48,8 @@
         rules for this resource will be checked.
 
     RbacRules basically consist of:
-    -resource: typically a web url or a Route uri name (or whatever you want)
+    -resource: typically a web url or a Route uri name (or whatever you want). Can match partial uri-names
+        using '-'. (ej. rule with resource 'user-' will match resources 'user-profile', 'user-items', etc.)
     -topic: typically a part of the page (or whatever you want). Defaults to '*' which means everything.
     -name: typically a CRUD operation (or whatever you want). Defaults to '*' which means everything.
     -flag: True to allow, False to denny access (defaults to False)
@@ -214,6 +216,26 @@ class RbacRule(ndb.Model):
     def __ne__(self, other):
         return not self == other
 
+    def __lt__(self, other):
+        if self.resource == '*' and other.resource != '*':
+            return False
+        if self.resource[-1] == '-' and other.resource != '*' and other.resource[-1] != '-':
+            return False
+        if other.resource != '*' and other.resource[-1] != '-':
+            # self.resource is a word != than '*' or != than finished with '-'
+            return self.resource < other.resource
+        if self.resource == other.resource:
+            if self.topic == '*' and other.topic != '*':
+                return False
+            if other.topic != '*':
+                return self.topic < other.topic
+            if self.topic == other.topic:
+                if self.name == '*' and other.name != '*':
+                    return False
+                if other.name != '*':
+                    return self.name < other.name
+        return True
+
 
 class RbacRole(ndb.Model):
     """Representation of a Role"""
@@ -368,23 +390,35 @@ class RbacUserRules(ndb.Model):
     @classmethod
     @tasklet
     def get_rules_for_resource_async(cls, user, resource=None):
-        """Gets the RbacUserRules from the datastore for the current user and a resource
+        """Gets the RbacUserRules from the datastore for the current user and resource
         Getting for a resource is so common that we define this helper method.
         :param user:
             the user id
         :param resource:
             the resource to get the rules from
         :returns:
-            (user_rules, roles and rules) triple or None
+            (user_rules, roles, rules) triple or None
         """
         user_rules = yield cls.get_rules_async(user)
         if user_rules:
-            if resource and resource != '*':
-                rules = [rule for rule in user_rules.rules if rule.resource == resource]
-            else:
-                rules = user_rules.rules
+            rules = cls.rules_for_resource(resource, user_rules.rules)
             raise ndb.Return(user_rules, user_rules.roles, rules)
         raise ndb.Return(None)
+
+    @classmethod
+    def rules_for_resource(cls, resource, rules):
+        if resource and resource != '*':
+            r_rules = [rule for rule in rules if cls._is_rule_for_resource(rule.resource, resource)]
+        else:
+            r_rules = rules
+        return r_rules
+
+    @classmethod
+    def _is_rule_for_resource(cls, rule_resource, resource):
+        if rule_resource[-1] == '-':
+            return rule_resource == resource[:len(rule_resource)]
+        else:
+            return rule_resource == resource
 
     @classmethod
     def new(cls, user, roles=None, rules=None):
@@ -405,13 +439,19 @@ class RbacUserRules(ndb.Model):
         """Method to generate de rules dict."""
         return dict(zip(self.rules_signatures, self.rules))
 
-    def add_role(self, role):
+    def sort_rules(self):
+        """sort the rules based on the __lt__ function in RbacRules"""
+        self.rules = sorted(self.rules, reverse=True)
+
+    def add_role(self, role, sort_rules=False):
         """Adds the role and role rules to the user roles and rules lists.
         If the role is already added we don't do anything.
         This method don't check if a Role rules definition has changed.
 
         :param role:
             RbacRole Model or role name string to append to the user rules.
+        :param sort_rules:
+            will sort all the rules at the end. Defaults to False.
         :returns:
             (roles, rules) tuple if succeed, else None
         """
@@ -420,15 +460,15 @@ class RbacUserRules(ndb.Model):
                 # If the role is already applied to this user don't do anything...
                 if role in self.roles:
                     return None
-                role = RbacRole.get_role_async(role, sync=True)
+                role_obj = RbacRole.get_role_async(role, sync=True)
+                if not role_obj:
+                    # This role was not found. However you maybe aren't using RbacRoles so.. add the role name anyway.
+                    # Append the new role name to the roles list
+                    self.roles.append(role)
+                    return self.roles, self.rules
+                role = role_obj
             else:
                 raise Exception('role must be an instance of RbacRole or a role string')
-
-        if role is None:
-            # This role was not found. However you maybe aren't using RbacRoles so.. add the role name anyway.
-            # Append the new role name to the roles list
-            self.roles.append(role)
-            return self.roles, self.rules
 
         # If the role is already applied to this user don't do anything...
         if role.name in self.roles:
@@ -436,7 +476,7 @@ class RbacUserRules(ndb.Model):
 
         self.roles.append(role.name)
 
-        # Call internal cached dict rules with signatures as keys.
+        # Call dict rules with signatures as keys.
         rules_dict = self.rules_to_dict()
 
         # Extend user rules with new role rules.
@@ -452,17 +492,23 @@ class RbacUserRules(ndb.Model):
 
         # rules_dict holds the final rules. Now we regenerate a rules list and assign it to self.rules
         self.rules = [v for k, v in rules_dict.iteritems()]
+        if sort_rules:
+            self.sort_rules()
         return self.roles, self.rules
 
-    def add_roles(self, roles):
+    def add_roles(self, roles, sort_rules=False):
         """Helper method to add list of roles
         :param roles:
             a list of RbacRoles or list of role strings
+        :param sort_rules:
+            will sort all the rules at the end. Defaults to False.
         :returns:
             tuple (self.roles, self.rules)
         """
         for role in roles:
             self.add_role(role)
+        if sort_rules:
+            self.sort_rules()
         return self.roles, self.rules
 
     def remove_role(self, role):
@@ -500,8 +546,10 @@ class RbacUserRules(ndb.Model):
         self.rules = new_rules
         return True
 
-    def add_custom_rule(self, resource, topic='*', name='*', flag=False):
+    def add_custom_rule(self, resource, topic='*', name='*', flag=False, sort_rules=False):
         """Adds a custom rule to the current RbacUserRules
+        :param sort_rules:
+            will sort all the rules at the end. Defaults to False.
         :returns:
             the RbacRule object.
         """
@@ -512,6 +560,8 @@ class RbacUserRules(ndb.Model):
         rule = RbacRule.new([CUSTOM_RULE_NAME], resource, topic, name, flag)
         if rule.signature not in self.rules_signatures:
             self.rules.append(rule)
+        if sort_rules:
+            self.sort_rules()
         return rule
 
     def remove_custom_rule(self, resource=None, topic='*', name='*', flag=False, signature=None):
@@ -597,6 +647,7 @@ class Rbac(object):
         self.rules = []
         self.user = None
         self.rbac_rules = None
+        self.unset = True
         # self.unset will be true if user is not provided correcty.
         # this will avoid any computation and allways return None (None means no access allowed) when asked for access.
         if user:
@@ -606,8 +657,6 @@ class Rbac(object):
             roles_rules = RbacUserRules.get_rules_for_resource_async(self.user, resource, sync=True)
             if roles_rules:
                 self.rbac_rules, self.roles, self.rules = roles_rules
-        else:
-            self.unset = True
 
     def belongs_to(self, role_s):
         """Check to see if a user belongs to a role/s group
@@ -643,10 +692,7 @@ class Rbac(object):
         """
         rules = []
         if self.rbac_rules:
-            if resource and resource != '*':
-                rules = [rule for rule in self.rbac_rules.rules if rule.resource == resource]
-            else:
-                rules = self.rbac_rules.rules
+            rules = self.rbac_rules.rules_for_resource(resource, self.rbac_rules.rules)
         return rules
 
     def has_access(self, topic='*', name='*', resource=None):
