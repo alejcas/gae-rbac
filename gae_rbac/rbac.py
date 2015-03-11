@@ -20,7 +20,7 @@
         you need to define rules that grant access (Flag=True)
     IMPORTANT: Rules are checked in order. If you define two rules for the same resource, topic or action
         only the first one will be checked and return the permission without checking the following rules.
-        However, you can use method 'sort_rules' to sort the set the rules in order.
+        However, you can use method 'sort_rules' to set the rules in order.
     IMPORTANT: All user rules are stored in the same entity on a per user basis. It is implemented as a repeated
         property. So, only a limited amount of rules can be added. If you overcome the 1MB entity size limit you
         will get an error. However, it can store thousands of rules before achieving the 1MB limit.
