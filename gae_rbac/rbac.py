@@ -332,6 +332,11 @@ class RbacRole(ndb.Model):
         """Returns a list of rules signatures"""
         return [r.signature for r in self.rules]
 
+    def __eq__(self, other):
+        if self.name == other.name:
+            return True
+        else:
+            return False
 
 class RbacUserRules(ndb.Model):
     """Object that holds the user roles and rules.
