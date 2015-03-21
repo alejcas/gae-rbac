@@ -249,7 +249,7 @@ class RbacRole(ndb.Model):
     @staticmethod
     def build_id(role_name):
         """Builds the id of this object to store it in the datastore"""
-        role_id = hashlib.md5(role_name).hexdigest()
+        role_id = hashlib.md5(role_name.lower()).hexdigest()
         return "role:%s" % role_id
 
     @classmethod
