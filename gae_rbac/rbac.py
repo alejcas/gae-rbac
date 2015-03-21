@@ -124,6 +124,7 @@
     :license: see LICENSE.txt for more details.
 """
 
+import hashlib
 import webapp2
 from google.appengine.ext import ndb
 
@@ -248,7 +249,8 @@ class RbacRole(ndb.Model):
     @staticmethod
     def build_id(role_name):
         """Builds the id of this object to store it in the datastore"""
-        return "role:%s" % role_name
+        role_id = hashlib.md5(role_name).hexdigest()
+        return "role:%s" % role_id
 
     @classmethod
     @tasklet
@@ -337,6 +339,7 @@ class RbacRole(ndb.Model):
             return True
         else:
             return False
+
 
 class RbacUserRules(ndb.Model):
     """Object that holds the user roles and rules.
