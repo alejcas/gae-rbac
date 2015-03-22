@@ -329,6 +329,20 @@ class RbacRole(ndb.Model):
             return rule
         return None
 
+    def remove_rule(self, resource, topic, name, flag):
+        """Method to remove a rule from the current role. RbacRules are never put into the datastore.
+        Will remove this rule from the instance rules list.
+
+        :returns:
+            True if the item is removed, False otherwise
+        """
+        rule = RbacRule.new([self.name], resource, topic, name, flag)
+        try:
+            self.rules.remove(rule)
+            return True
+        except:
+            return False
+
     @property
     def rules_signatures(self):
         """Returns a list of rules signatures"""
