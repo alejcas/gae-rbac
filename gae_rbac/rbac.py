@@ -750,6 +750,15 @@ class Rbac(object):
         # No match. Access is granted depending on rbac_policy_allow.
         return self.config['rbac_policy_allow']
 
+    def updateUserRules(self, users_ids, roles_to_update):
+        """Updates all RbacUserRules with a RbacRole rules.
+        :param users_ids:
+            a list of user ids to apply the RbacRole rules.
+        :params roles_to_update:
+            a list of roles to apply the rules for.
+        """
+        # TODO: complete the method
+
 
 class RbacMixin(object):
     """A mixin that adds rbac property to a 'webapp2.RequestHandler'.
