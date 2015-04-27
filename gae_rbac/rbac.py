@@ -573,6 +573,19 @@ class RbacUserRules(ndb.Model):
         self.rules = new_rules
         return True
 
+    def update_role(self, role):
+        """Updates the role rules to the RbacUserRules"""
+
+        if isinstance(role, basestring):
+            role = ndb.Key(RbacRole, RbacRole.build_id(role)).get()
+        if not role:
+            return False
+        result = self.remove_role(role)
+        if result:
+            self.add_role(role)
+            return True
+        return False
+
     def add_custom_rule(self, resource, topic='*', name='*', flag=False, sort_rules=False):
         """Adds a custom rule to the current RbacUserRules
         :param sort_rules:
@@ -750,14 +763,30 @@ class Rbac(object):
         # No match. Access is granted depending on rbac_policy_allow.
         return self.config['rbac_policy_allow']
 
-    def updateUserRules(self, users_ids, roles_to_update):
+    def update_user_rules(self, users_ids, roles_to_update):
         """Updates all RbacUserRules with a RbacRole rules.
         :param users_ids:
             a list of user ids to apply the RbacRole rules.
         :params roles_to_update:
             a list of roles to apply the rules for.
         """
-        # TODO: complete the method
+        # create keys with ndb.Key(RbacUserRules, RbacUserRules.build_id(user_id))
+        users_ids = users_ids or None
+        roles_to_update = roles_to_update or None
+        assert users_ids is not None and roles_to_update is not None
+        rbac_objs = ndb.get_multi_async([ndb.Key(RbacUserRules, RbacUserRules.build_id(user_id)) for user_id in users_ids])
+        rbac_roles = ndb.get_multi_async([ndb.Key(RbacRole, RbacRole.build_id(role)) for role in roles_to_update])
+        rbac_objs = rbac_objs.get_result()
+        if not rbac_objs:
+            return False
+        rbac_roles = rbac_roles.get_result()
+        if not rbac_roles:
+            return False
+        for rbac_obj in rbac_objs:
+            for rbac_role in rbac_roles:
+                rbac_obj.update_role(rbac_role)
+        ndb.put_multi(rbac_objs)
+        return True
 
 
 class RbacMixin(object):
