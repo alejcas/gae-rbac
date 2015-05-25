@@ -127,6 +127,7 @@
 import hashlib
 import webapp2
 from google.appengine.ext import ndb
+from google.appengine.api import memcache
 
 
 CUSTOM_RULE_NAME = '_custom'
@@ -165,6 +166,19 @@ def tasklet(func):
             del kwds[arg_name]
         return taskletfunc(*args, **kwds)
     return tasklet_wrapper
+
+
+class FakeFuture(object):
+
+    def __init__(self, future, memcache_key):
+        self.future = future
+        self._memcache_key = memcache_key
+
+    def get_result(self):
+        if isinstance(self.future, ndb.Future):
+            self.future = self.future.get_result()
+            memcache.set(self._memcache_key, self.future)
+        return self.future
 
 
 class RbacRule(ndb.Model):
@@ -246,6 +260,8 @@ class RbacRole(ndb.Model):
     # holds the rules: see https://cloud.google.com/appengine/docs/python/ndb/properties#structured
     rules = ndb.LocalStructuredProperty(RbacRule, 'ru', repeated=True)  # Not indexed by default.
 
+    _memcache_key = 'gae-rbac_roles_list'
+
     @staticmethod
     def build_id(role_name):
         """Builds the id of this object to store it in the datastore"""
@@ -272,15 +288,16 @@ class RbacRole(ndb.Model):
         raise ndb.Return(role_s)
 
     @classmethod
-    @tasklet
     def get_all_async(cls):
-        """Gets all the role objects from the datastore.
-        It's defined as a tasklet so more operations can be done while getting the result.
+        """Gets all the role objects from the datastore. Uses memcache to cache results.
+        It's defined as async so more operations can be done while getting the result.
         :returns:
             A list of RbacRole objects
         """
-        roles = yield cls.query().fetch_async()
-        raise ndb.Return(roles)
+        roles = memcache.get(cls._memcache_key)
+        if roles is None:
+            roles = cls.query().fetch_async()
+        return FakeFuture(roles, cls._memcache_key)
 
     @classmethod
     @tasklet
