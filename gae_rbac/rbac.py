@@ -288,16 +288,25 @@ class RbacRole(ndb.Model):
         raise ndb.Return(role_s)
 
     @classmethod
-    def get_all_async(cls):
+    def get_all_async(cls, sync=False):
         """Gets all the role objects from the datastore. Uses memcache to cache results.
         It's defined as async so more operations can be done while getting the result.
+        :param sync:
+            if True returns a FakeFuture with a posible future object
         :returns:
             A list of RbacRole objects
         """
         roles = memcache.get(cls._memcache_key)
         if roles is None:
-            roles = cls.query().fetch_async()
-        return FakeFuture(roles, cls._memcache_key)
+            if sync is True:
+                roles = cls.query().fetch()
+            else:
+                roles = cls.query().fetch_async()
+                roles = FakeFuture(roles, cls._memcache_key)
+        else:
+            if sync is False:
+                roles = FakeFuture(roles, cls._memcache_key)
+        return roles
 
     @classmethod
     @tasklet
