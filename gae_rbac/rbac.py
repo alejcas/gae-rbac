@@ -170,14 +170,16 @@ def tasklet(func):
 
 class FakeFuture(object):
 
-    def __init__(self, future, memcache_key):
+    def __init__(self, future, memcache_key, delete=False):
         self.future = future
         self._memcache_key = memcache_key
+        self.delete = delete
 
     def get_result(self):
         if isinstance(self.future, ndb.Future):
             self.future = self.future.get_result()
-            memcache.set(self._memcache_key, self.future)
+            if self.delete is False:
+                memcache.set(self._memcache_key, self.future)
         return self.future
 
 
@@ -309,21 +311,29 @@ class RbacRole(ndb.Model):
         return roles
 
     @classmethod
-    @tasklet
-    def delete_role_async(cls, role_name):
+    def delete_role_async(cls, role_name, sync=False):
         """Deletes the role name or a list of roles
         Deleting a role does not change User Rules and Roles.
-        It's defined as a tasklet so more operations can be done while getting the result.
+        It's defined as async so more operations can be done while getting the result.
         :param role_name:
             a role name string or a list of roles strings
         :returns:
             True if succeed else False.
         """
+        memcache.delete(cls._memcache_key)
         if isinstance(role_name, basestring):
-            future = yield ndb.Key(cls, cls.build_id(role_name)).delete_async()
+            if sync is True:
+                future = ndb.Key(cls, cls.build_id(role_name)).delete()
+            else:
+                future = ndb.Key(cls, cls.build_id(role_name)).delete_async()
+                future = FakeFuture(future, cls._memcache_key)
         else:
-            future = yield ndb.delete_multi_async([ndb.Key(cls, cls.build_id(role)) for role in role_name])
-        raise ndb.Return(future)
+            if sync is True:
+                future = ndb.delete_multi([ndb.Key(cls, cls.build_id(role)) for role in role_name])
+            else:
+                future = ndb.delete_multi_async([ndb.Key(cls, cls.build_id(role)) for role in role_name])
+                future = FakeFuture(future, cls._memcache_key)
+        return future
 
     @classmethod
     def new(cls, name, rules=None):
@@ -339,6 +349,7 @@ class RbacRole(ndb.Model):
         if rules is None:
             rules = []
         role = cls(name=name, rules=rules, id=cls.build_id(name))
+        memcache.delete(cls._memcache_key)
         return role
 
     def new_rule(self, resource, topic='*', name='*', flag=False):
