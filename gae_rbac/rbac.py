@@ -326,13 +326,13 @@ class RbacRole(ndb.Model):
                 future = ndb.Key(cls, cls.build_id(role_name)).delete()
             else:
                 future = ndb.Key(cls, cls.build_id(role_name)).delete_async()
-                future = FakeFuture(future, cls._memcache_key)
+                future = FakeFuture(future, cls._memcache_key, delete=True)
         else:
             if sync is True:
                 future = ndb.delete_multi([ndb.Key(cls, cls.build_id(role)) for role in role_name])
             else:
                 future = ndb.delete_multi_async([ndb.Key(cls, cls.build_id(role)) for role in role_name])
-                future = FakeFuture(future, cls._memcache_key)
+                future = FakeFuture(future, cls._memcache_key, delete=True)
         return future
 
     @classmethod
