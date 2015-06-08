@@ -341,7 +341,8 @@ class RbacRole(ndb.Model):
         assert role_name or role_id, "Provide just one: role_name or role_id"
         keys = cls.get_keys(role_name, role_id)
         memcache.delete(cls._memcache_key)
-        if isinstance(role_name, basestring):
+        role = role_name or role_id
+        if isinstance(role, basestring):
             if sync is True:
                 future = keys.delete()
             else:
