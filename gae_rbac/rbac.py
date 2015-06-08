@@ -271,6 +271,21 @@ class RbacRole(ndb.Model):
         return "role:%s" % role_id
 
     @classmethod
+    def get_keys(cls, role_name=None, role_id=None):
+        """Construct the Key objects"""
+        assert role_name or role_id, "Provide just one: role_name or role_id"
+        if role_name:
+            if isinstance(role_name, basestring):
+                return ndb.Key(cls, cls.build_id(role_name))
+            else:
+                return [ndb.Key(cls, cls.build_id(role)) for role in role_name]
+        elif role_id:
+            if isinstance(role_id, basestring):
+                return ndb.Key(cls, role_id)
+            else:
+                return [ndb.Key(cls, role) for role in role_id]
+
+    @classmethod
     @tasklet
     def get_role_async(cls, role_name_s):
         """Gets the role object from the datastore.
@@ -311,27 +326,32 @@ class RbacRole(ndb.Model):
         return roles
 
     @classmethod
-    def delete_role_async(cls, role_name, sync=False):
+    def delete_role_async(cls, role_name=None, role_id=None, sync=False):
         """Deletes the role name or a list of roles
         Deleting a role does not change User Rules and Roles.
         It's defined as async so more operations can be done while getting the result.
+        Just provide role_name or role_id but not both.
         :param role_name:
-            a role name string or a list of roles strings
+            a role name string or a list of roles strings.
+        :param role_id:
+            a role id or a list of roles ids
         :returns:
             True if succeed else False.
         """
+        assert role_name or role_id, "Provide just one: role_name or role_id"
+        keys = cls.get_keys(role_name, role_id)
         memcache.delete(cls._memcache_key)
         if isinstance(role_name, basestring):
             if sync is True:
-                future = ndb.Key(cls, cls.build_id(role_name)).delete()
+                future = keys.delete()
             else:
-                future = ndb.Key(cls, cls.build_id(role_name)).delete_async()
+                future = keys.delete_async()
                 future = FakeFuture(future, cls._memcache_key, delete=True)
         else:
             if sync is True:
-                future = ndb.delete_multi([ndb.Key(cls, cls.build_id(role)) for role in role_name])
+                future = ndb.delete_multi(keys)
             else:
-                future = ndb.delete_multi_async([ndb.Key(cls, cls.build_id(role)) for role in role_name])
+                future = ndb.delete_multi_async(keys)
                 future = FakeFuture(future, cls._memcache_key, delete=True)
         return future
 
@@ -400,8 +420,8 @@ class RbacUserRules(ndb.Model):
 
     # user id rules applies for.
     user = ndb.StringProperty('u', required=True, indexed=False)
-    # list of roles
-    roles = ndb.StringProperty('ro', repeated=True, indexed=False)
+    # list of role names
+    roles = ndb.StringProperty('ro', repeated=True, indexed=True)  # You can query by roles to update role definitions or delete roles
     # list of rules
     rules = ndb.LocalStructuredProperty(RbacRule, 'ru', repeated=True)  # Not indexed by default.
     # Modification date
@@ -419,12 +439,22 @@ class RbacUserRules(ndb.Model):
 
     @classmethod
     @tasklet
+    def get_all_by_role(cls, role_name):
+        """Gets all the RbacUserRules with the provided role_name assingned.
+        :param role_name:
+            the role name to query
+        """
+        if role_name:
+            rbac_user_rules = yield cls.query(cls.roles == role_name).fetch_async()
+            raise ndb.Return(rbac_user_rules)
+        raise ndb.Return(None)
+
+    @classmethod
+    @tasklet
     def delete_user_rules(cls, user):
         """Deletes a RbacUserRule for a given user or list of users.
         :param user:
             the user id in string format or a list of user id's
-        :returns:
-            True if succeed, False if not.
         """
         if isinstance(user, basestring):
             future = ndb.Key(cls, cls.build_id(user)).delete_async()
