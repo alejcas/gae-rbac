@@ -2,7 +2,7 @@
 
 # IMPORTANT: See documentation inside rbac.py
 
-__author__ = 'janscas'
+__author__ = 'alejcas'
 
 
 from rbac import RbacRole, RbacUserRules, RbacMixin, RbacUserMixin, allow, deny, check_access
